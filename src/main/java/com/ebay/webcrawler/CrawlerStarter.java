@@ -1,8 +1,8 @@
 package com.ebay.webcrawler;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.stereotype.Component;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -16,6 +16,8 @@ import java.util.concurrent.Executors;
  */
 public class CrawlerStarter {
 
+    Logger logger = LoggerFactory.getLogger(CrawlerStarter.class);
+
     private final String[] args;
     private static final int AMOUNT_OF_RUNNERS = 5;
 
@@ -23,6 +25,10 @@ public class CrawlerStarter {
         this.args = args;
     }
 
+    /**
+     * Scans the URLs file, for each row (could be a web page and amount of links to download) creates new
+     * Crawler thread.
+     */
     public void start() {
         try {
             if (args.length >= 1) {
@@ -40,19 +46,19 @@ public class CrawlerStarter {
                             Crawler crawler = new Crawler(data[0], Integer.parseInt(data[1]));
                             executorService.submit(crawler);
                         } catch (NumberFormatException e) {
-                            System.out.println("Failed convert :" + data[1] + " to number");
+                            logger.error("Failed convert :" + data[1] + " to number");
                         }
                     } else {
-                        System.out.println("Wrong row format.");
+                        logger.error("Wrong row format.");
                     }
                 }
                 executorService.shutdown();
             } else {
-                System.out.println("Please insert csv file as a parameter. args size " + args
+                logger.error("Please insert csv file as a parameter. args size " + args
                         .length);
             }
         } catch (IOException e) {
-            System.err.println("Failed to read csv file.");
+            logger.error("Failed to read csv file.");
         }
     }
 }

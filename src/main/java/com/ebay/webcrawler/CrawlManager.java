@@ -5,26 +5,44 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.*;
 
 
 public class CrawlManager {
 
-    /** Amount of threads running on single webpage */
-    private static final int THREAD_COUNT = 2;
-    /** Already downloaded urls */
+    Logger logger = LoggerFactory.getLogger(CrawlManager.class);
+
+    private static final String FOLDER_NAME = "Downloaded pages";
+    /**
+     * Amount of threads running on single webpage
+     */
+    private static final int THREAD_COUNT = 5;
+    /**
+     * Already downloaded urls
+     */
     private final Map<URL, Boolean> masterUrlsMap = new ConcurrentHashMap<>();
-    /** List of FetchPage threads*/
+    /**
+     * List of FetchPage threads
+     */
     private final Set<Future<CrawlerPage>> futures = new HashSet<>();
     private final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_COUNT);
-    /** Url of the main web page*/
+    /**
+     * Url of the main web page
+     */
     private final String urlBase;
-    /** Maximum urls to download from the web*/
+    /**
+     * Maximum urls to download from the web
+     */
     private final int maxUrls;
 
 
@@ -35,9 +53,10 @@ public class CrawlManager {
 
     public void startCrawlingWebSite() {
         try {
+            createDirectory();
             submitNewURL(new URL(urlBase));
         } catch (MalformedURLException e) {
-            System.err.println(e.getMessage());
+            logger.error(e.getMessage());
         }
         //till required pages observed or downloaded all pages
         while (crawlersStillCollectingUrls())
@@ -52,9 +71,11 @@ public class CrawlManager {
      * @param url Url of the web page
      */
     private void submitNewURL(URL url) {
-        CrawlerPage crawlerPage = new CrawlerPage(url);
-        Future<CrawlerPage> future = executorService.submit(crawlerPage);
-        futures.add(future);
+        if (shouldVisit(url)) {
+            CrawlerPage crawlerPage = new CrawlerPage(url);
+            Future<CrawlerPage> future = executorService.submit(crawlerPage);
+            futures.add(future);
+        }
     }
 
 
@@ -67,7 +88,7 @@ public class CrawlManager {
         try {
             Thread.sleep(1000);
         } catch (InterruptedException e) {
-            System.err.println(e.getMessage());
+            logger.info(e.getMessage());
         }
         Set<CrawlerPage> pageSet = new HashSet<>();
         Iterator<Future<CrawlerPage>> iterator = futures.iterator();
@@ -78,7 +99,7 @@ public class CrawlManager {
                 try {
                     pageSet.add(future.get());
                 } catch (InterruptedException | ExecutionException e) {
-                    System.out.println(e.getMessage());
+                    logger.error(e.getMessage());
                 }
             }
         }
@@ -93,12 +114,42 @@ public class CrawlManager {
 
 
     /**
+     * Prevents visiting the same page twice and visiting more than required links.
+     *
+     * @param url Potentially URL for adding
+     * @return true- if url isn't added yet and didn't reached maximum links
+     */
+    private boolean shouldVisit(URL url) {
+        if (masterUrlsMap.containsKey(url)) {
+            return false;
+        }
+        return masterUrlsMap.size() < maxUrls;
+    }
+
+    /**
+     * Creates directory for a downloaded files.
+     */
+    private void createDirectory() {
+        Path path = Paths.get(FOLDER_NAME);
+        if (!Files.exists(path)) {
+            try {
+                Files.createDirectory(path);
+            } catch (IOException e) {
+                logger.warn(e.getMessage());
+            }
+            logger.info("Directory created");
+        } else {
+            logger.info("Directory already exists");
+        }
+    }
+
+    /**
      * This object that observes specific web page. Downloads each link and collects them to the list for
      * further monitoring.
      */
     private class CrawlerPage implements Callable<CrawlerPage> {
 
-        private final int TIMEOUT = 5000;
+        Logger logger = LoggerFactory.getLogger(CrawlerPage.class);
         private final URL url;
         /*** Set of the links in the current web page */
         private final Set<URL> urlSet = new HashSet<>();
@@ -108,16 +159,22 @@ public class CrawlManager {
         }
 
         @Override
-        public CrawlerPage call() throws Exception {
-            Document document = Jsoup.parse(url, 1000);
-            downloadPageAndExtractUrls(document.select("a[href]"));
+        public CrawlerPage call() {
+            try {
+                logger.info("ThreadName: " + Thread.currentThread().getName());
+                downloadWebPage(url);
+                Document document = Jsoup.parse(url, 1000);
+                extractAndDownloadPagesByUrl(document.select("a[href]"));
+            } catch (IOException e) {
+                logger.error(e.getMessage());
+            }
             return this;
         }
 
         /**
          * @param links Link to download and extract links from this page.
          */
-        private void downloadPageAndExtractUrls(Elements links) {
+        private void extractAndDownloadPagesByUrl(Elements links) {
             for (Element link : links) {
                 String href = link.attr("href");
                 if (StringUtils.isBlank(href) || href.startsWith("#")) {
@@ -126,14 +183,12 @@ public class CrawlManager {
                 try {
                     URL nextUrl = new URL(url, href);
                     //if url hadn't visited yet puts to master urls map, downloads the page, and sets to the set
-                    if (!masterUrlsMap.containsKey(nextUrl)) {
-                        if (shouldVisit(nextUrl)) {
-                            downloadWebPage(nextUrl);
-                            urlSet.add(nextUrl);
-                        }
+                    if (shouldVisit(nextUrl)) {
+                        downloadWebPage(nextUrl);
+                        urlSet.add(nextUrl);
                     }
                 } catch (MalformedURLException e) {
-                    System.err.println(e.getMessage());
+                    logger.error(e.getMessage());
                 }
             }
         }
@@ -151,9 +206,9 @@ public class CrawlManager {
                 try {
                     BufferedReader readr =
                             new BufferedReader(new InputStreamReader(url.openStream()));
-                    System.out.println("Downloading page from url ... " + url.toString());
+                    logger.info("Downloading page from url ... " + url.toString());
                     String fileName = url.toString().replaceAll("[^a-zA-Z0-9.\\-]", "");
-                    FileWriter fileWriter = new FileWriter(fileName + ".html");
+                    FileWriter fileWriter = new FileWriter(new File(FOLDER_NAME, fileName + ".html"));
                     BufferedWriter writer = new BufferedWriter(fileWriter);
                     // read each line from stream till end
                     String line;
@@ -162,7 +217,7 @@ public class CrawlManager {
                     }
                     readr.close();
                     writer.close();
-                    System.out.println("Successfully downloaded: " + url.toString());
+                    logger.info("Successfully downloaded: " + url.toString());
                     masterUrlsMap.put(url, false);
                 } catch (IOException e) {
                     retries = getRetries(url, retries);
@@ -173,19 +228,6 @@ public class CrawlManager {
         }
 
         /**
-         * Prevents visiting the same page twice and visiting more than required links.
-         *
-         * @param url Potentially URL for adding
-         * @return true- if url isn't added yet and didn't reached maximum links
-         */
-        private boolean shouldVisit(URL url) {
-            if (masterUrlsMap.containsKey(url)) {
-                return false;
-            }
-            return masterUrlsMap.size() < maxUrls;
-        }
-
-        /**
          * Prints error, decreases retrying attempts, sleeps before retrying.
          *
          * @param url     URL failed to download
@@ -193,12 +235,13 @@ public class CrawlManager {
          * @return amount of remains retrying
          */
         private int getRetries(URL url, int retries) {
-            System.err.println("Failed download from: " + url.toString() + ".");
+            logger.error("Failed download from: " + url.toString() + ".");
             retries--;
             try {
-                Thread.sleep(TIMEOUT);
+                int timeout = 5000;
+                Thread.sleep(timeout);
             } catch (InterruptedException e) {
-                System.err.println(e.getMessage());
+                logger.error(e.getMessage());
             }
             return retries;
         }
