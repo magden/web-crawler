@@ -5,7 +5,6 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.springframework.beans.factory.annotation.Value;
 
 import java.io.*;
 import java.net.MalformedURLException;
@@ -13,33 +12,35 @@ import java.net.URL;
 import java.util.*;
 import java.util.concurrent.*;
 
+
 public class CrawlManager {
 
     /** Amount of threads running on single webpage */
-    private static final int THREAD_COUNT = 10;
+    private static final int THREAD_COUNT = 2;
     /** Already downloaded urls */
-    private final ConcurrentHashMap<URL, Boolean> masterUrlsMap = new ConcurrentHashMap<>();
+    private final Map<URL, Boolean> masterUrlsMap = new ConcurrentHashMap<>();
     /** List of FetchPage threads*/
-    private final List<Future<CrawlPage>> futures = new ArrayList<>();
+    private final Set<Future<CrawlerPage>> futures = new HashSet<>();
     private final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_COUNT);
     /** Url of the main web page*/
     private final String urlBase;
     /** Maximum urls to download from the web*/
     private final int maxUrls;
 
+
     public CrawlManager(String url, int maxUrls) {
         this.maxUrls = maxUrls;
         this.urlBase = url.replaceAll("(.*//.*/).*", "$1");
     }
 
-    public void startCrawling() {
+    public void startCrawlingWebSite() {
         try {
             submitNewURL(new URL(urlBase));
         } catch (MalformedURLException e) {
             System.err.println(e.getMessage());
         }
         //till required pages observed or downloaded all pages
-        while (checkPageFetch())
+        while (crawlersStillCollectingUrls())
             ;
         executorService.shutdown();
     }
@@ -51,23 +52,27 @@ public class CrawlManager {
      * @param url Url of the web page
      */
     private void submitNewURL(URL url) {
-        CrawlPage crawlPage = new CrawlPage(url);
-        Future<CrawlPage> future = executorService.submit(crawlPage);
+        CrawlerPage crawlerPage = new CrawlerPage(url);
+        Future<CrawlerPage> future = executorService.submit(crawlerPage);
         futures.add(future);
-        //        executorService.shutdown();
     }
 
 
     /**
-     * Checks the status of all the  running  threads on the web page and collects links.
+     * Checks the status of all the running threads on the web page and collects links.
      *
      * @return false = all the threads are done
      */
-    private boolean checkPageFetch() {
-        Set<CrawlPage> pageSet = new HashSet<>();
-        Iterator<Future<CrawlPage>> iterator = futures.iterator();
+    private boolean crawlersStillCollectingUrls() {
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            System.err.println(e.getMessage());
+        }
+        Set<CrawlerPage> pageSet = new HashSet<>();
+        Iterator<Future<CrawlerPage>> iterator = futures.iterator();
         while (iterator.hasNext()) {
-            Future<CrawlPage> future = iterator.next();
+            Future<CrawlerPage> future = iterator.next();
             if (future.isDone()) {
                 iterator.remove();
                 try {
@@ -77,55 +82,34 @@ public class CrawlManager {
                 }
             }
         }
-        for (CrawlPage crawlPage : pageSet) {
-            addFromCrawlPage(crawlPage);
+        //each crawler page holds set of the urls for a further monitoring
+        for (CrawlerPage crawlerPage : pageSet) {
+            for (URL url : crawlerPage.getUrlSet()) {
+                submitNewURL(url);
+            }
         }
         return (futures.size() > 0);
     }
 
-    /**
-     * Gets the URLs from the crawl page, saves the url into the "to-do" list.
-     *
-     * @param crawlPage object containing the URL list
-     */
-    private void addFromCrawlPage(CrawlPage crawlPage) {
-        for (URL url : crawlPage.getUrlSet()) {
-            submitNewURL(url);
-        }
-    }
 
     /**
-     * Prevents visiting the same page twice and visiting more than required links.
-     *
-     * @param url Potentially URL for adding
-     * @return true- if url isn't added yet and didn't reached maximum links
+     * This object that observes specific web page. Downloads each link and collects them to the list for
+     * further monitoring.
      */
-    private boolean shouldVisit(URL url) {
-        if (masterUrlsMap.containsKey(url)) {
-            return false;
-        }
-        return masterUrlsMap.size() < maxUrls;
-    }
-
-    /**
-     * This object that observes specific web page.
-     */
-    private class CrawlPage implements Callable<CrawlPage> {
+    private class CrawlerPage implements Callable<CrawlerPage> {
 
         private final int TIMEOUT = 5000;
         private final URL url;
-        /**
-         * Set of the links in the current web page
-         */
+        /*** Set of the links in the current web page */
         private final Set<URL> urlSet = new HashSet<>();
 
-        public CrawlPage(URL url) {
+        public CrawlerPage(URL url) {
             this.url = url;
         }
 
         @Override
-        public CrawlPage call() throws Exception {
-            Document document = Jsoup.parse(url, TIMEOUT);
+        public CrawlerPage call() throws Exception {
+            Document document = Jsoup.parse(url, 1000);
             downloadPageAndExtractUrls(document.select("a[href]"));
             return this;
         }
@@ -141,6 +125,7 @@ public class CrawlManager {
                 }
                 try {
                     URL nextUrl = new URL(url, href);
+                    //if url hadn't visited yet puts to master urls map, downloads the page, and sets to the set
                     if (!masterUrlsMap.containsKey(nextUrl)) {
                         if (shouldVisit(nextUrl)) {
                             downloadWebPage(nextUrl);
@@ -154,8 +139,8 @@ public class CrawlManager {
         }
 
         /**
-         * Downloads the current web page.
-         * If failed - trying 3 times with 5 seconds between retrying.
+         * Downloads the current web page and puts the url to the master urls map.
+         * If failed - trying 3 times with 5 seconds waiting between retrying.
          *
          * @param url URL to download
          */
@@ -167,7 +152,7 @@ public class CrawlManager {
                     BufferedReader readr =
                             new BufferedReader(new InputStreamReader(url.openStream()));
                     System.out.println("Downloading page from url ... " + url.toString());
-                    String fileName = url.toString().replaceAll("[^a-zA-Z0-9\\.\\-]", "");
+                    String fileName = url.toString().replaceAll("[^a-zA-Z0-9.\\-]", "");
                     FileWriter fileWriter = new FileWriter(fileName + ".html");
                     BufferedWriter writer = new BufferedWriter(fileWriter);
                     // read each line from stream till end
@@ -178,7 +163,7 @@ public class CrawlManager {
                     readr.close();
                     writer.close();
                     System.out.println("Successfully downloaded: " + url.toString());
-                    masterUrlsMap.put(url, true);
+                    masterUrlsMap.put(url, false);
                 } catch (IOException e) {
                     retries = getRetries(url, retries);
                     continue;
@@ -188,7 +173,20 @@ public class CrawlManager {
         }
 
         /**
-         * Prints error and decreased retrying attempts.
+         * Prevents visiting the same page twice and visiting more than required links.
+         *
+         * @param url Potentially URL for adding
+         * @return true- if url isn't added yet and didn't reached maximum links
+         */
+        private boolean shouldVisit(URL url) {
+            if (masterUrlsMap.containsKey(url)) {
+                return false;
+            }
+            return masterUrlsMap.size() < maxUrls;
+        }
+
+        /**
+         * Prints error, decreases retrying attempts, sleeps before retrying.
          *
          * @param url     URL failed to download
          * @param retries amount of retrying

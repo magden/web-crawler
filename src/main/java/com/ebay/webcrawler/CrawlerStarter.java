@@ -14,7 +14,6 @@ import java.util.concurrent.Executors;
 public class CrawlerStarter {
 
     private String[] args;
-    //    @Value("${amount.of.runners}")
     private static final int AMOUNT_OF_RUNNERS = 5;
 
     public CrawlerStarter(String... args) {

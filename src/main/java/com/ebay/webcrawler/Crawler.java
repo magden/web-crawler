@@ -16,6 +16,6 @@ public class Crawler implements Runnable {
     @Override
     public void run() {
         CrawlManager crawlManager = new CrawlManager(url, maxLink);
-        crawlManager.startCrawling();
+        crawlManager.startCrawlingWebSite();
     }
 }
