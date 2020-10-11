@@ -12,7 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Object that loads scans url file, for each row( web site) creates new thread for monitoring.
+ * Object that scans url file, for each row( web site) creates new thread for monitoring.
  */
 public class CrawlerStarter {
 
