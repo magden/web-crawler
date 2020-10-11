@@ -16,8 +16,7 @@ import java.util.concurrent.*;
 public class CrawlManager {
 
     /** Amount of threads running on single webpage */
-    @Value("${attempts.to.try}")
-    private int THREAD_COUNT;
+    private static final int THREAD_COUNT = 2;
     /** Already downloaded urls */
     volatile ConcurrentHashMap<URL, Boolean> masterUrlsMap = new ConcurrentHashMap<>();
     /** List of FetchPage threads*/
