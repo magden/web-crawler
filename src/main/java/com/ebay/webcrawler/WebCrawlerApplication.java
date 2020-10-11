@@ -17,9 +17,7 @@ public class WebCrawlerApplication {
 
         SpringApplication.run(WebCrawlerApplication.class, args);
         if (args.length >= 1) {
-            System.out.println("Starting ");
             ExecutorService executorService = Executors.newFixedThreadPool(5);
-            System.out.println("Starting ");
             String csvFilePath = args[0];
             BufferedReader csvBufferedReader = Files.newBufferedReader(Paths.get(csvFilePath));
             String row;
