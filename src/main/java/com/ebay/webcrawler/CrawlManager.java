@@ -16,9 +16,9 @@ import java.util.concurrent.*;
 public class CrawlManager {
 
     /** Amount of threads running on single webpage */
-    private static final int THREAD_COUNT = 2;
+    private static final int THREAD_COUNT = 10;
     /** Already downloaded urls */
-    volatile ConcurrentHashMap<URL, Boolean> masterUrlsMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<URL, Boolean> masterUrlsMap = new ConcurrentHashMap<>();
     /** List of FetchPage threads*/
     private final List<Future<CrawlPage>> futures = new ArrayList<>();
     private final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_COUNT);
@@ -41,6 +41,7 @@ public class CrawlManager {
         //till required pages observed or downloaded all pages
         while (checkPageFetch())
             ;
+        executorService.shutdown();
     }
 
     /**
@@ -53,7 +54,7 @@ public class CrawlManager {
         CrawlPage crawlPage = new CrawlPage(url);
         Future<CrawlPage> future = executorService.submit(crawlPage);
         futures.add(future);
-        executorService.shutdown();
+        //        executorService.shutdown();
     }
 
 
