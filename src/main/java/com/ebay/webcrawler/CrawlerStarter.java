@@ -11,9 +11,12 @@ import java.nio.file.Paths;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Object that loads scans url file, for each row( web site) creates new thread for monitoring.
+ */
 public class CrawlerStarter {
 
-    private String[] args;
+    private final String[] args;
     private static final int AMOUNT_OF_RUNNERS = 5;
 
     public CrawlerStarter(String... args) {
