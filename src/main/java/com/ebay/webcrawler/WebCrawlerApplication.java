@@ -13,30 +13,31 @@ import java.util.concurrent.Executors;
 @SpringBootApplication
 public class WebCrawlerApplication {
 
-    public static void main(String[] args) throws IOException {
-
-        SpringApplication.run(WebCrawlerApplication.class, args);
-        if (args.length >= 1) {
-            ExecutorService executorService = Executors.newFixedThreadPool(5);
-            String csvFilePath = args[0];
-            BufferedReader csvBufferedReader = Files.newBufferedReader(Paths.get(csvFilePath));
-            String row;
-            while ((row = csvBufferedReader.readLine()) != null) {
-                //"clean" = whitespaces less
-                String cleanRow = row.replaceAll("\\s+", "");
-                String[] data = cleanRow.split(",");
-                if (data.length == 2) {
-                    Crawler crawler = new Crawler(data[0], Integer.parseInt(data[1]));
-                    executorService.submit(crawler);
-                } else {
-                    System.out.println("Wrong row format.");
+    public static void main(String[] args) {
+        try {
+            if (args.length >= 1) {
+                ExecutorService executorService = Executors.newFixedThreadPool(5);
+                String csvFilePath = args[0];
+                BufferedReader csvBufferedReader = Files.newBufferedReader(Paths.get(csvFilePath));
+                String row;
+                while ((row = csvBufferedReader.readLine()) != null) {
+                    //"clean" = whitespaces less
+                    String cleanRow = row.replaceAll("\\s+", "");
+                    String[] data = cleanRow.split(",");
+                    if (data.length == 2) {
+                        Crawler crawler = new Crawler(data[0], Integer.parseInt(data[1]));
+                        executorService.submit(crawler);
+                    } else {
+                        System.out.println("Wrong row format.");
+                    }
                 }
+                executorService.shutdown();
+            } else {
+                System.out.println("Please insert csv file as a parameter. args size " + args.length);
             }
-            executorService.shutdown();
-        } else {
-            System.out.println("Please insert csv file as a parameter. args size " + args.length);
+        } catch (IOException e) {
+            System.err.println("Failed to read csv file.");
         }
-
     }
 
 }
