@@ -18,31 +18,27 @@ import java.util.*;
 import java.util.concurrent.*;
 
 
+/**
+ * Manages downloaded, observed pages and threads that collect urls from pages.
+ */
 public class CrawlManager {
 
     Logger logger = LoggerFactory.getLogger(CrawlManager.class);
 
+    /*** File contains saved urls  */
     private static final String FOLDER_NAME = "Downloaded pages";
-    /**
-     * Amount of threads running on single webpage
-     */
-    private static final int THREAD_COUNT = 5;
-    /**
-     * Already downloaded urls
-     */
-    private final Map<URL, Boolean> masterUrlsMap = new ConcurrentHashMap<>();
-    /**
-     * List of FetchPage threads
-     */
-    private final Set<Future<CrawlerPage>> futures = new HashSet<>();
+    /*** Amount of threads running on single webpage */
+    private static final int THREAD_COUNT = 2;
+    /*** Already downloaded urls */
+    private final Map<URL, Boolean> downloadedUrlsMap = new ConcurrentHashMap<>();
+    /*** Already observed pages  */
+    private final Set<URL> observedPages = new HashSet<>();
+    /*** List of FetchPage threads */
+    private final Set<Future<CrawlerPage>> futureCrawlerPages = new HashSet<>();
     private final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_COUNT);
-    /**
-     * Url of the main web page
-     */
+    /*** Url of the main web page */
     private final String urlBase;
-    /**
-     * Maximum urls to download from the web
-     */
+    /*** Maximum urls to download from the web */
     private final int maxUrls;
 
 
@@ -51,6 +47,10 @@ public class CrawlManager {
         this.urlBase = url.replaceAll("(.*//.*/).*", "$1");
     }
 
+    /**
+     * Creates new directory for a downloaded files, observes the base url after that continue to observe
+     * "children" urls.
+     */
     public void startCrawlingWebSite() {
         try {
             createDirectory();
@@ -61,20 +61,22 @@ public class CrawlManager {
         //till required pages observed or downloaded all pages
         while (crawlersStillCollectingUrls())
             ;
+
         executorService.shutdown();
     }
 
     /**
-     * Creates the CrawlPage object for a given url and drops it on the execution queue.
-     * After creating the task, puts the Future object into a list for further monitoring.
+     * Creates the CrawlPage thread for a given url and drops it on the execution queue.
+     * After creating the task, puts the Future object into a set for further monitoring.
      *
      * @param url Url of the web page
      */
     private void submitNewURL(URL url) {
-        if (shouldVisit(url)) {
+        if (!observedPages.contains(url)) {
             CrawlerPage crawlerPage = new CrawlerPage(url);
             Future<CrawlerPage> future = executorService.submit(crawlerPage);
-            futures.add(future);
+            futureCrawlerPages.add(future);
+            observedPages.add(url);
         }
     }
 
@@ -91,7 +93,7 @@ public class CrawlManager {
             logger.info(e.getMessage());
         }
         Set<CrawlerPage> pageSet = new HashSet<>();
-        Iterator<Future<CrawlerPage>> iterator = futures.iterator();
+        Iterator<Future<CrawlerPage>> iterator = futureCrawlerPages.iterator();
         while (iterator.hasNext()) {
             Future<CrawlerPage> future = iterator.next();
             if (future.isDone()) {
@@ -109,22 +111,9 @@ public class CrawlManager {
                 submitNewURL(url);
             }
         }
-        return (futures.size() > 0);
+        return (futureCrawlerPages.size() > 0);
     }
 
-
-    /**
-     * Prevents visiting the same page twice and visiting more than required links.
-     *
-     * @param url Potentially URL for adding
-     * @return true- if url isn't added yet and didn't reached maximum links
-     */
-    private boolean shouldVisit(URL url) {
-        if (masterUrlsMap.containsKey(url)) {
-            return false;
-        }
-        return masterUrlsMap.size() < maxUrls;
-    }
 
     /**
      * Creates directory for a downloaded files.
@@ -161,7 +150,6 @@ public class CrawlManager {
         @Override
         public CrawlerPage call() {
             try {
-                logger.info("ThreadName: " + Thread.currentThread().getName());
                 downloadWebPage(url);
                 Document document = Jsoup.parse(url, 1000);
                 extractAndDownloadPagesByUrl(document.select("a[href]"));
@@ -218,13 +206,27 @@ public class CrawlManager {
                     readr.close();
                     writer.close();
                     logger.info("Successfully downloaded: " + url.toString());
-                    masterUrlsMap.put(url, false);
+                    downloadedUrlsMap.put(url, false);
                 } catch (IOException e) {
                     retries = getRetries(url, retries);
                     continue;
                 }
                 succeed = true;
             }
+        }
+
+
+        /**
+         * Prevents visiting the same page twice and visiting more than required links.
+         *
+         * @param url Potentially URL for adding
+         * @return true- if url isn't added yet and didn't reached maximum links
+         */
+        private boolean shouldVisit(URL url) {
+            if (downloadedUrlsMap.containsKey(url)) {
+                return false;
+            }
+            return downloadedUrlsMap.size() < maxUrls;
         }
 
         /**
