@@ -31,9 +31,9 @@ public class CrawlManager {
     private static final int THREAD_COUNT = 2;
     /*** Already downloaded urls */
     private final Map<URL, Boolean> downloadedUrlsMap = new ConcurrentHashMap<>();
-    /*** Already observed pages  */
+    /*** Already observed urls  */
     private final Set<URL> observedPages = new HashSet<>();
-    /*** List of FetchPage threads */
+    /*** Set of CrawlerPage threads */
     private final Set<Future<CrawlerPage>> futureCrawlerPages = new HashSet<>();
     private final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_COUNT);
     /*** Url of the main web page */
@@ -42,6 +42,10 @@ public class CrawlManager {
     private final int maxUrls;
 
 
+    /**
+     * @param url     main url of the web site to download
+     * @param maxUrls maximum urls to download
+     */
     public CrawlManager(String url, int maxUrls) {
         this.maxUrls = maxUrls;
         this.urlBase = url.replaceAll("(.*//.*/).*", "$1");
@@ -87,11 +91,6 @@ public class CrawlManager {
      * @return false = all the threads are done
      */
     private boolean crawlersStillCollectingUrls() {
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            logger.info(e.getMessage());
-        }
         Set<CrawlerPage> pageSet = new HashSet<>();
         Iterator<Future<CrawlerPage>> iterator = futureCrawlerPages.iterator();
         while (iterator.hasNext()) {
@@ -152,7 +151,7 @@ public class CrawlManager {
             try {
                 downloadWebPage(url);
                 Document document = Jsoup.parse(url, 1000);
-                extractAndDownloadPagesByUrl(document.select("a[href]"));
+                extractUrlsAndDownloadPages(document.select("a[href]"));
             } catch (IOException e) {
                 logger.error(e.getMessage());
             }
@@ -162,7 +161,7 @@ public class CrawlManager {
         /**
          * @param links Link to download and extract links from this page.
          */
-        private void extractAndDownloadPagesByUrl(Elements links) {
+        private void extractUrlsAndDownloadPages(Elements links) {
             for (Element link : links) {
                 String href = link.attr("href");
                 if (StringUtils.isBlank(href) || href.startsWith("#")) {
@@ -187,7 +186,7 @@ public class CrawlManager {
          *
          * @param url URL to download
          */
-        public void downloadWebPage(URL url) {
+        public synchronized void downloadWebPage(URL url) {
             int retries = 3;
             boolean succeed = false;
             while (retries > 0 && !succeed) {
@@ -222,7 +221,7 @@ public class CrawlManager {
          * @param url Potentially URL for adding
          * @return true- if url isn't added yet and didn't reached maximum links
          */
-        private boolean shouldVisit(URL url) {
+        private synchronized boolean shouldVisit(URL url) {
             if (downloadedUrlsMap.containsKey(url)) {
                 return false;
             }
